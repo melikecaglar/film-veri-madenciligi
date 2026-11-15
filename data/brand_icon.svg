@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="rainbowGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4ade80"/>
+      <stop offset="30%" stop-color="#facc15"/>
+      <stop offset="65%" stop-color="#fb7185"/>
+      <stop offset="100%" stop-color="#a855f7"/>
+    </linearGradient>
+  </defs>
+  <!-- Alt Gövde -->
+  <rect x="6" y="22" width="52" height="36" rx="8" fill="#2d3748"/>
+  <rect x="10" y="28" width="44" height="26" rx="5" fill="url(#rainbowGrad)"/>
+  <!-- Play Üçgeni -->
+  <polygon points="27,34 27,48 40,41" fill="#ffffff"/>
+  <!-- Üst Klapet (Hafif Açık) -->
+  <g transform="rotate(-11 8 22)">
+    <rect x="6" y="10" width="52" height="12" rx="4" fill="#1e293b"/>
+    <polygon points="14,10 22,10 17,22 9,22" fill="#f8fafc"/>
+    <polygon points="28,10 36,10 31,22 23,22" fill="#f8fafc"/>
+    <polygon points="42,10 50,10 45,22 37,22" fill="#f8fafc"/>
+  </g>
+</svg>

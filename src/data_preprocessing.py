@@ -273,12 +273,20 @@ def preprocess_movies_data(
             lambda lst: json.dumps(lst, ensure_ascii=False)
         )
 
-    df_to_save.to_csv(save_path, index=False, encoding="utf-8")
+    try:
+        if not os.path.exists(save_path):
+            df_to_save.to_csv(save_path, index=False, encoding="utf-8")
+    except OSError:
+        pass
 
     # Kök dizine de kopyasını kaydet (hem data/cleaned_movies.csv hem cleaned_movies.csv erişilebilir olsun)
     root_clean_path = os.path.join(base_dir, "cleaned_movies.csv")
     if os.path.abspath(save_path) != os.path.abspath(root_clean_path):
-        df_to_save.to_csv(root_clean_path, index=False, encoding="utf-8")
+        try:
+            if not os.path.exists(root_clean_path):
+                df_to_save.to_csv(root_clean_path, index=False, encoding="utf-8")
+        except OSError:
+            pass
 
     final_nulls = df.isnull().sum().to_dict()
 
