@@ -62,8 +62,45 @@ CLUSTER_COLORS = [
     "#4F46E5",
 ]
 
-SEQUENTIAL_BLUES = ["#93C5FD", "#60A5FA", "#3B82F6", "#2563EB", "#1D4ED8", "#1E40AF"]
-SEQUENTIAL_TEALS = ["#99F6E4", "#5EEAD4", "#2DD4BF", "#14B8A6", "#0D9488", "#0F766E"]
+SEQUENTIAL_BLUES = [
+    [0.0, "#93C5FD"],
+    [0.2, "#60A5FA"],
+    [0.4, "#3B82F6"],
+    [0.6, "#2563EB"],
+    [0.8, "#1D4ED8"],
+    [1.0, "#1E40AF"],
+]
+SEQUENTIAL_TEALS = [
+    [0.0, "#99F6E4"],
+    [0.2, "#5EEAD4"],
+    [0.4, "#2DD4BF"],
+    [0.6, "#14B8A6"],
+    [0.8, "#0D9488"],
+    [1.0, "#0F766E"],
+]
+
+
+def _shorten_label(text: Any, max_len: int = 30) -> str:
+    """Uzun Y ekseni etiketlerinin grafik alanını daraltmaması için okunabilir şekilde kısaltır."""
+    s = str(text or "").strip()
+    if len(s) <= max_len:
+        return s
+    return s[: max_len - 1].rstrip() + "…"
+
+
+def _make_unique_labels(labels: List[str]) -> List[str]:
+    """Kısaltılmış etiketlerde çakışma olursa görünmez boşluk ekleyerek Plotly'nin birleştirmesini önler."""
+    seen: Dict[str, int] = {}
+    result: List[str] = []
+    for lbl in labels:
+        if lbl not in seen:
+            seen[lbl] = 1
+            result.append(lbl)
+        else:
+            cnt = seen[lbl]
+            seen[lbl] = cnt + 1
+            result.append(lbl + ("\u200b" * cnt))
+    return result
 
 
 def _empty_figure(message: str = "Gösterilecek veri bulunamadı.", height: int = 400) -> go.Figure:
@@ -83,7 +120,7 @@ def _empty_figure(message: str = "Gösterilecek veri bulunamadı.", height: int 
         height=height,
         xaxis=dict(visible=False),
         yaxis=dict(visible=False),
-        margin=dict(l=20, r=20, t=40, b=20),
+        margin=dict(l=40, r=40, t=50, b=40),
     )
     return fig
 
@@ -93,23 +130,36 @@ def _apply_clean_layout(
     title: str,
     xaxis_title: str = "",
     yaxis_title: str = "",
-    height: int = 430,
+    height: int = 440,
     show_legend: bool = False,
+    left_margin: int = 80,
+    right_margin: int = 60,
+    top_margin: int = 68,
+    bottom_margin: int = 58,
 ) -> go.Figure:
-    """Tüm grafiklere ortak tipografi, kenar boşluğu ve etkileşim stili uygular."""
+    """Tüm grafiklere ortak tipografi, otomatik eksen boşluğu (automargin) ve etkileşim stili uygular."""
     fig.update_layout(
         title=dict(
-            text=title,
-            font=dict(size=15, color=COLOR_TEXT, family="sans-serif"),
-            x=0.0,
+            text=f"<b>{title}</b>",
+            font=dict(size=14, color=COLOR_TEXT, family="sans-serif"),
+            x=0.01,
+            xref="container",
             xanchor="left",
-            pad=dict(b=10),
+            y=0.95,
+            yref="container",
+            yanchor="top",
         ),
         template="plotly_white",
         height=height,
         font=dict(family="sans-serif", size=12, color=COLOR_TEXT),
         showlegend=show_legend,
-        margin=dict(l=16, r=24, t=52, b=36),
+        margin=dict(
+            l=left_margin,
+            r=right_margin,
+            t=top_margin,
+            b=bottom_margin,
+            autoexpand=True,
+        ),
         plot_bgcolor="#FFFFFF",
         paper_bgcolor="#FFFFFF",
         hoverlabel=dict(
@@ -121,6 +171,8 @@ def _apply_clean_layout(
     )
     fig.update_xaxes(
         title_text=xaxis_title,
+        automargin=True,
+        title_standoff=10,
         showgrid=True,
         gridcolor=COLOR_GRID,
         linecolor=COLOR_BORDER,
@@ -130,10 +182,13 @@ def _apply_clean_layout(
     )
     fig.update_yaxes(
         title_text=yaxis_title,
+        automargin=True,
+        title_standoff=10,
+        ticksuffix="  ",
         showgrid=False,
         linecolor=COLOR_BORDER,
         title_font=dict(size=12, color=COLOR_MUTED),
-        tickfont=dict(size=11, color=COLOR_TEXT),
+        tickfont=dict(size=11.5, color=COLOR_TEXT),
         zeroline=False,
     )
     return fig
@@ -189,9 +244,11 @@ def plot_top_genres_count(df: pd.DataFrame, top_n: int = 15) -> go.Figure:
         title="En Çok Film Üretilen Türler",
         xaxis_title="Film Sayısı",
         yaxis_title="",
-        height=440,
+        height=450,
+        left_margin=135,
+        right_margin=75,
     )
-    fig.update_xaxes(range=[0, float(g_df["Film Sayısı"].max()) * 1.24])
+    fig.update_xaxes(range=[0, float(g_df["Film Sayısı"].max()) * 1.32])
     return fig
 
 
@@ -231,7 +288,9 @@ def plot_movies_by_year(df: pd.DataFrame) -> go.Figure:
         title="Yıllara Göre Üretilen Film Sayısı (1950+)",
         xaxis_title="Yayın Yılı",
         yaxis_title="Film Sayısı",
-        height=440,
+        height=450,
+        left_margin=75,
+        right_margin=40,
     )
     fig.update_yaxes(showgrid=True, gridcolor=COLOR_GRID)
     return fig
@@ -250,8 +309,14 @@ def plot_top_revenue_movies(df: pd.DataFrame, top_n: int = 10) -> go.Figure:
     )
     top_rev["revenue_m"] = top_rev["revenue"] / 1e6
     top_rev["budget_m"] = top_rev["budget"] / 1e6
-    top_rev["label_title"] = (
+    top_rev["full_label"] = (
         top_rev["title"].astype(str) + " (" + top_rev["release_year"].astype(str) + ")"
+    )
+    top_rev["label_title"] = _make_unique_labels(
+        [
+            f"{_shorten_label(t, 26)} ({y})"
+            for t, y in zip(top_rev["title"], top_rev["release_year"])
+        ]
     )
 
     fig = go.Figure(
@@ -264,10 +329,10 @@ def plot_top_revenue_movies(df: pd.DataFrame, top_n: int = 10) -> go.Figure:
             textposition="outside",
             cliponaxis=False,
             customdata=np.stack(
-                [top_rev["budget_m"], top_rev["vote_average"], top_rev["director"]], axis=-1
+                [top_rev["budget_m"], top_rev["vote_average"], top_rev["director"], top_rev["full_label"]], axis=-1
             ),
             hovertemplate=(
-                "<b>%{y}</b><br>"
+                "<b>%{customdata[3]}</b><br>"
                 "Gişe Geliri: $%{x:,.1f}M<br>"
                 "Bütçe: $%{customdata[0]:,.1f}M<br>"
                 "Puan: ⭐ %{customdata[1]:.1f}<br>"
@@ -280,10 +345,12 @@ def plot_top_revenue_movies(df: pd.DataFrame, top_n: int = 10) -> go.Figure:
         title=f"En Yüksek Gişe Geliri Elde Eden {top_n} Film",
         xaxis_title="Gişe Geliri (Milyon $)",
         yaxis_title="",
-        height=440,
+        height=450,
+        left_margin=195,
+        right_margin=75,
     )
     max_val = float(top_rev["revenue_m"].max()) if not top_rev.empty else 100.0
-    fig.update_xaxes(range=[0, max(max_val * 1.22, 10.0)])
+    fig.update_xaxes(range=[0, max(max_val * 1.28, 10.0)])
     return fig
 
 
@@ -300,8 +367,14 @@ def plot_top_budget_movies(df: pd.DataFrame, top_n: int = 10) -> go.Figure:
     )
     top_bud["budget_m"] = top_bud["budget"] / 1e6
     top_bud["revenue_m"] = top_bud["revenue"] / 1e6
-    top_bud["label_title"] = (
+    top_bud["full_label"] = (
         top_bud["title"].astype(str) + " (" + top_bud["release_year"].astype(str) + ")"
+    )
+    top_bud["label_title"] = _make_unique_labels(
+        [
+            f"{_shorten_label(t, 26)} ({y})"
+            for t, y in zip(top_bud["title"], top_bud["release_year"])
+        ]
     )
 
     fig = go.Figure(
@@ -314,10 +387,10 @@ def plot_top_budget_movies(df: pd.DataFrame, top_n: int = 10) -> go.Figure:
             textposition="outside",
             cliponaxis=False,
             customdata=np.stack(
-                [top_bud["revenue_m"], top_bud["vote_average"], top_bud["director"]], axis=-1
+                [top_bud["revenue_m"], top_bud["vote_average"], top_bud["director"], top_bud["full_label"]], axis=-1
             ),
             hovertemplate=(
-                "<b>%{y}</b><br>"
+                "<b>%{customdata[3]}</b><br>"
                 "Bütçe: $%{x:,.1f}M<br>"
                 "Gişe Geliri: $%{customdata[0]:,.1f}M<br>"
                 "Puan: ⭐ %{customdata[1]:.1f}<br>"
@@ -330,10 +403,12 @@ def plot_top_budget_movies(df: pd.DataFrame, top_n: int = 10) -> go.Figure:
         title=f"En Yüksek Bütçeli {top_n} Film",
         xaxis_title="Yapım Bütçesi (Milyon $)",
         yaxis_title="",
-        height=440,
+        height=450,
+        left_margin=195,
+        right_margin=75,
     )
     max_val = float(top_bud["budget_m"].max()) if not top_bud.empty else 100.0
-    fig.update_xaxes(range=[0, max(max_val * 1.22, 10.0)])
+    fig.update_xaxes(range=[0, max(max_val * 1.28, 10.0)])
     return fig
 
 
@@ -348,8 +423,14 @@ def plot_top_popular_movies(df: pd.DataFrame, top_n: int = 10) -> go.Figure:
         .copy()
         .sort_values(by="popularity", ascending=True)
     )
-    top_pop["label_title"] = (
+    top_pop["full_label"] = (
         top_pop["title"].astype(str) + " (" + top_pop["release_year"].astype(str) + ")"
+    )
+    top_pop["label_title"] = _make_unique_labels(
+        [
+            f"{_shorten_label(t, 26)} ({y})"
+            for t, y in zip(top_pop["title"], top_pop["release_year"])
+        ]
     )
 
     fig = go.Figure(
@@ -362,10 +443,10 @@ def plot_top_popular_movies(df: pd.DataFrame, top_n: int = 10) -> go.Figure:
             textposition="outside",
             cliponaxis=False,
             customdata=np.stack(
-                [top_pop["vote_average"], top_pop["vote_count"], top_pop["genres_str"]], axis=-1
+                [top_pop["vote_average"], top_pop["vote_count"], top_pop["genres_str"], top_pop["full_label"]], axis=-1
             ),
             hovertemplate=(
-                "<b>%{y}</b><br>"
+                "<b>%{customdata[3]}</b><br>"
                 "Popülerlik Skoru: %{x:.1f}<br>"
                 "Ortalama Puan: ⭐ %{customdata[0]:.1f} (%{customdata[1]:,} oy)<br>"
                 "Türler: %{customdata[2]}<extra></extra>"
@@ -377,10 +458,12 @@ def plot_top_popular_movies(df: pd.DataFrame, top_n: int = 10) -> go.Figure:
         title=f"En Popüler {top_n} Film",
         xaxis_title="Popülerlik Endeksi",
         yaxis_title="",
-        height=440,
+        height=450,
+        left_margin=195,
+        right_margin=75,
     )
     max_val = float(top_pop["popularity"].max()) if not top_pop.empty else 100.0
-    fig.update_xaxes(range=[0, max(max_val * 1.22, 10.0)])
+    fig.update_xaxes(range=[0, max(max_val * 1.28, 10.0)])
     return fig
 
 
@@ -429,7 +512,9 @@ def plot_vote_average_distribution(df: pd.DataFrame) -> go.Figure:
         title="Kullanıcı Puanlarının (vote_average) Dağılımı",
         xaxis_title="Ortalama Puan (0 - 10)",
         yaxis_title="Film Sayısı",
-        height=440,
+        height=450,
+        left_margin=75,
+        right_margin=40,
     )
     fig.update_yaxes(showgrid=True, gridcolor=COLOR_GRID)
     return fig
@@ -488,8 +573,11 @@ def plot_budget_vs_revenue(df: pd.DataFrame) -> go.Figure:
         title=f"Bütçe ve Gelir İlişkisi (Korelasyon r = {corr_val:.2f})",
         xaxis_title="Bütçe (Milyon $)",
         yaxis_title="Gişe Geliri (Milyon $)",
-        height=450,
+        height=460,
         show_legend=True,
+        left_margin=80,
+        right_margin=70,
+        top_margin=82,
     )
     fig.update_yaxes(showgrid=True, gridcolor=COLOR_GRID)
     fig.update_layout(legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="left", x=0))
@@ -534,7 +622,9 @@ def plot_popularity_vs_vote_average(df: pd.DataFrame) -> go.Figure:
         title=f"Popülerlik ve Puan İlişkisi (r = {corr_val:.2f}, Log Ölçek)",
         xaxis_title="Ortalama Kullanıcı Puanı (vote_average)",
         yaxis_title="Popülerlik (Log Ölçek)",
-        height=450,
+        height=460,
+        left_margin=80,
+        right_margin=70,
     )
     fig.update_yaxes(type="log", showgrid=True, gridcolor=COLOR_GRID)
     return fig
@@ -582,9 +672,11 @@ def plot_top_directors(df: pd.DataFrame, top_n: int = 12) -> go.Figure:
         title=f"En Çok Film Yöneten {top_n} Yönetmen",
         xaxis_title="Film Sayısı",
         yaxis_title="",
-        height=440,
+        height=450,
+        left_margin=165,
+        right_margin=85,
     )
-    fig.update_xaxes(range=[0, float(dir_df["Film_Sayisi"].max()) * 1.28])
+    fig.update_xaxes(range=[0, float(dir_df["Film_Sayisi"].max()) * 1.34])
     return fig
 
 
@@ -656,9 +748,11 @@ def plot_average_revenue_by_genre(df: pd.DataFrame, top_n: int = 15) -> go.Figur
         title="Film Türlerine Göre Ortalama Gişe Geliri",
         xaxis_title="Ortalama Gelir (Milyon $)",
         yaxis_title="",
-        height=440,
+        height=450,
+        left_margin=135,
+        right_margin=75,
     )
-    fig.update_xaxes(range=[0, float(g_rev_df["Ortalama_Gelir_M"].max()) * 1.24])
+    fig.update_xaxes(range=[0, float(g_rev_df["Ortalama_Gelir_M"].max()) * 1.30])
     return fig
 
 
@@ -676,21 +770,24 @@ def plot_apriori_frequent_items(items_df: pd.DataFrame, title: str, top_n: int =
     if "film_count" not in sub.columns:
         sub["film_count"] = 0
     sub = sub.sort_values(by="support_pct", ascending=True)
+    sub["display_label"] = _make_unique_labels(
+        [_shorten_label(s, 30) for s in sub["items_str"]]
+    )
 
     fig = go.Figure(
         go.Bar(
             x=sub["support_pct"],
-            y=sub["items_str"],
+            y=sub["display_label"],
             orientation="h",
             marker=dict(color=COLOR_PRIMARY),
             text=[f"%{pct:.1f} ({cnt:,})" for pct, cnt in zip(sub["support_pct"], sub["film_count"])],
             textposition="outside",
             cliponaxis=False,
-            customdata=sub["film_count"],
+            customdata=np.stack([sub["film_count"], sub["items_str"]], axis=-1),
             hovertemplate=(
-                "<b>%{y}</b><br>"
+                "<b>%{customdata[1]}</b><br>"
                 "Support (Görülme Oranı): %%{x:.2f}<br>"
-                "Film Sayısı: %{customdata:,}<extra></extra>"
+                "Film Sayısı: %{customdata[0]:,}<extra></extra>"
             ),
         )
     )
@@ -699,9 +796,11 @@ def plot_apriori_frequent_items(items_df: pd.DataFrame, title: str, top_n: int =
         title=title,
         xaxis_title="Destek Oranı - Support (%)",
         yaxis_title="",
-        height=420,
+        height=440,
+        left_margin=185,
+        right_margin=85,
     )
-    fig.update_xaxes(range=[0, float(sub["support_pct"].max()) * 1.28])
+    fig.update_xaxes(range=[0, float(sub["support_pct"].max()) * 1.35])
     return fig
 
 
@@ -743,7 +842,9 @@ def plot_apriori_rules_scatter(rules_df: pd.DataFrame) -> go.Figure:
         title="Birliktelik Kuralları Haritası (Support vs Confidence vs Lift)",
         xaxis_title="Support - Birlikte Görülme Oranı (%)",
         yaxis_title="Confidence - Güven Olasılığı (%)",
-        height=430,
+        height=450,
+        left_margin=75,
+        right_margin=70,
     )
     fig.update_yaxes(showgrid=True, gridcolor=COLOR_GRID)
     return fig
@@ -757,19 +858,22 @@ def plot_top_rules_bar(top_rules_df: pd.DataFrame) -> go.Figure:
     sub = top_rules_df.head(10).copy().sort_values(by="lift", ascending=True)
     sub["conf_pct"] = sub["confidence"] * 100.0
     sub["supp_pct"] = sub["support"] * 100.0
+    sub["display_rule"] = _make_unique_labels(
+        [_shorten_label(r, 32) for r in sub["rule_str"]]
+    )
 
     fig = go.Figure(
         go.Bar(
             x=sub["lift"],
-            y=sub["rule_str"],
+            y=sub["display_rule"],
             orientation="h",
             marker=dict(color=COLOR_SECONDARY),
             text=[f"{lft:.2f}x (Güven: %{cnf:.0f})" for lft, cnf in zip(sub["lift"], sub["conf_pct"])],
             textposition="outside",
             cliponaxis=False,
-            customdata=np.stack([sub["conf_pct"], sub["supp_pct"]], axis=-1),
+            customdata=np.stack([sub["conf_pct"], sub["supp_pct"], sub["rule_str"]], axis=-1),
             hovertemplate=(
-                "<b>%{y}</b><br>"
+                "<b>%{customdata[2]}</b><br>"
                 "Lift Katsayısı: %{x:.2f}x<br>"
                 "Confidence (Güven): %%{customdata[0]:.1f}<br>"
                 "Support (Destek): %%{customdata[1]:.2f}<extra></extra>"
@@ -787,9 +891,11 @@ def plot_top_rules_bar(top_rules_df: pd.DataFrame) -> go.Figure:
         title="En Güçlü 10 Birliktelik Kuralı (Lift Katsayısına Göre)",
         xaxis_title="Lift Katsayısı (1.0 = Rastlantısal Eşik)",
         yaxis_title="",
-        height=430,
+        height=450,
+        left_margin=215,
+        right_margin=95,
     )
-    fig.update_xaxes(range=[0, float(sub["lift"].max()) * 1.28])
+    fig.update_xaxes(range=[0, float(sub["lift"].max()) * 1.42])
     return fig
 
 
@@ -809,7 +915,7 @@ def plot_elbow_and_silhouette(eval_df: pd.DataFrame, selected_k: int) -> go.Figu
             "Elbow Yöntemi (Küme İçi Hata Kareler Toplamı - WCSS)",
             "Silhouette Skoru (Küme Ayrışma Kalitesi)",
         ),
-        horizontal_spacing=0.12,
+        horizontal_spacing=0.16,
     )
 
     sel_row = eval_df[eval_df["k"] == selected_k]
@@ -873,13 +979,16 @@ def plot_elbow_and_silhouette(eval_df: pd.DataFrame, selected_k: int) -> go.Figu
     _apply_clean_layout(
         fig,
         title="Küme Sayısı (k = 2..8) Kalite Değerlendirmesi",
-        height=390,
+        height=420,
         show_legend=False,
+        left_margin=80,
+        right_margin=45,
+        top_margin=82,
     )
-    fig.update_xaxes(title_text="Küme Sayısı (k)", dtick=1, row=1, col=1)
-    fig.update_xaxes(title_text="Küme Sayısı (k)", dtick=1, row=1, col=2)
-    fig.update_yaxes(title_text="Inertia (WCSS)", showgrid=True, gridcolor=COLOR_GRID, row=1, col=1)
-    fig.update_yaxes(title_text="Silhouette Skoru", showgrid=True, gridcolor=COLOR_GRID, row=1, col=2)
+    fig.update_xaxes(title_text="Küme Sayısı (k)", dtick=1, automargin=True, row=1, col=1)
+    fig.update_xaxes(title_text="Küme Sayısı (k)", dtick=1, automargin=True, row=1, col=2)
+    fig.update_yaxes(title_text="Inertia (WCSS)", automargin=True, showgrid=True, gridcolor=COLOR_GRID, row=1, col=1)
+    fig.update_yaxes(title_text="Silhouette Skoru", automargin=True, showgrid=True, gridcolor=COLOR_GRID, row=1, col=2)
     return fig
 
 
@@ -927,20 +1036,22 @@ def plot_kmeans_clusters_pca(clustered_df: pd.DataFrame) -> go.Figure:
         title="K-Means Kümelerinin 2B PCA Uzayında Dağılımı (Film Detayları İçin Noktaların Üzerine Gelin)",
         xaxis_title="Birinci Temel Bileşen (PCA 1 - Finansal Ölçek & Popülerlik)",
         yaxis_title="İkinci Temel Bileşen (PCA 2 - Tür & Puan Etkisi)",
-        height=480,
+        height=500,
         show_legend=True,
+        left_margin=80,
+        right_margin=45,
+        top_margin=95,
     )
     fig.update_yaxes(showgrid=True, gridcolor=COLOR_GRID)
     fig.update_layout(
         legend=dict(
             orientation="h",
             yanchor="bottom",
-            y=1.02,
+            y=1.01,
             xanchor="left",
             x=0,
             font=dict(size=11),
         ),
-        margin=dict(t=80),
     )
     return fig
 
@@ -962,8 +1073,8 @@ def plot_kmeans_cluster_comparison(summary_df: pd.DataFrame) -> go.Figure:
             "Ortalama Popülerlik Skoru",
             "Ortalama Kullanıcı Puanı (0-10)",
         ),
-        vertical_spacing=0.18,
-        horizontal_spacing=0.10,
+        vertical_spacing=0.22,
+        horizontal_spacing=0.14,
     )
 
     # 1. Küme Başına Film Sayısı
@@ -1052,18 +1163,21 @@ def plot_kmeans_cluster_comparison(summary_df: pd.DataFrame) -> go.Figure:
     _apply_clean_layout(
         fig,
         title="Kümelerin Temel Metrikler Üzerinden Karşılaştırması",
-        height=560,
+        height=600,
         show_legend=True,
+        left_margin=75,
+        right_margin=45,
+        top_margin=92,
     )
     fig.update_layout(
         barmode="group",
         legend=dict(orientation="h", yanchor="bottom", y=1.03, xanchor="right", x=1),
     )
-    fig.update_yaxes(range=[0, float(summary_df["movie_count"].max()) * 1.25], showgrid=True, gridcolor=COLOR_GRID, row=1, col=1)
+    fig.update_yaxes(range=[0, float(summary_df["movie_count"].max()) * 1.30], automargin=True, showgrid=True, gridcolor=COLOR_GRID, row=1, col=1)
     max_fin = max(float((summary_df["avg_revenue"] / 1e6).max()), float((summary_df["avg_budget"] / 1e6).max()))
-    fig.update_yaxes(range=[0, max_fin * 1.25], showgrid=True, gridcolor=COLOR_GRID, row=1, col=2)
-    fig.update_yaxes(range=[0, float(summary_df["avg_popularity"].max()) * 1.25], showgrid=True, gridcolor=COLOR_GRID, row=2, col=1)
-    fig.update_yaxes(range=[0, 10.5], showgrid=True, gridcolor=COLOR_GRID, row=2, col=2)
+    fig.update_yaxes(range=[0, max_fin * 1.30], automargin=True, showgrid=True, gridcolor=COLOR_GRID, row=1, col=2)
+    fig.update_yaxes(range=[0, float(summary_df["avg_popularity"].max()) * 1.30], automargin=True, showgrid=True, gridcolor=COLOR_GRID, row=2, col=1)
+    fig.update_yaxes(range=[0, 10.8], automargin=True, showgrid=True, gridcolor=COLOR_GRID, row=2, col=2)
     return fig
 
 
@@ -1101,9 +1215,12 @@ def plot_confusion_matrix_heatmap(cm_df: pd.DataFrame) -> go.Figure:
         title="Karmaşıklık Matrisi (Confusion Matrix - Test Seti)",
         xaxis_title="Modelin Tahmin Ettiği Sınıf",
         yaxis_title="Gerçek Gelir Sınıfı",
-        height=380,
+        height=440,
+        left_margin=160,
+        right_margin=40,
+        bottom_margin=65,
     )
-    fig.update_yaxes(autorange="reversed")
+    fig.update_yaxes(autorange="reversed", automargin=True)
     return fig
 
 
@@ -1134,9 +1251,11 @@ def plot_feature_importance(fi_df: pd.DataFrame, top_n: int = 12) -> go.Figure:
         title=f"Gişe Geliri Tahmininde En Etkili {top_n} Özellik",
         xaxis_title="Göreli Önem Düzeyi (%)",
         yaxis_title="",
-        height=430,
+        height=440,
+        left_margin=195,
+        right_margin=75,
     )
-    fig.update_xaxes(range=[0, float(sub["importance_pct"].max()) * 1.24])
+    fig.update_xaxes(range=[0, float(sub["importance_pct"].max()) * 1.32])
     return fig
 
 
@@ -1150,8 +1269,14 @@ def plot_recommendations_similarity(rec_df: pd.DataFrame, selected_title: str) -
         return _empty_figure("Öneri verisi bulunamadı.")
 
     sub = rec_df.copy().sort_values(by="Benzerlik Yüzdesi (%)", ascending=True)
-    sub["label_title"] = (
+    sub["full_label"] = (
         sub["Film Adı"].astype(str) + " (" + sub["Yayın Yılı"].astype(str) + ")"
+    )
+    sub["label_title"] = _make_unique_labels(
+        [
+            f"{_shorten_label(t, 28)} ({y})"
+            for t, y in zip(sub["Film Adı"], sub["Yayın Yılı"])
+        ]
     )
 
     fig = go.Figure(
@@ -1170,11 +1295,11 @@ def plot_recommendations_similarity(rec_df: pd.DataFrame, selected_title: str) -
             textposition="outside",
             cliponaxis=False,
             customdata=np.stack(
-                [sub["Türler"], sub["Yönetmen"], sub["Ortak Unsurlar"], sub["Ortalama Puan"]],
+                [sub["Türler"], sub["Yönetmen"], sub["Ortak Unsurlar"], sub["Ortalama Puan"], sub["full_label"]],
                 axis=-1,
             ),
             hovertemplate=(
-                "<b>%{y}</b><br>"
+                "<b>%{customdata[4]}</b><br>"
                 "Kosinüs Benzerliği: %%{x:.2f}<br>"
                 "Puan: ⭐ %{customdata[3]:.1f}<br>"
                 "Yönetmen: %{customdata[1]}<br>"
@@ -1188,8 +1313,10 @@ def plot_recommendations_similarity(rec_df: pd.DataFrame, selected_title: str) -
         title=f"'{selected_title}' Filmine En Benzer 10 Film (TF-IDF & Kosinüs Benzerliği)",
         xaxis_title="İçerik Benzerlik Oranı (%)",
         yaxis_title="",
-        height=430,
+        height=450,
+        left_margin=205,
+        right_margin=95,
     )
     max_sim = float(sub["Benzerlik Yüzdesi (%)"].max()) if not sub.empty else 10.0
-    fig.update_xaxes(range=[0, max(max_sim * 1.28, 10.0)])
+    fig.update_xaxes(range=[0, max(max_sim * 1.38, 10.0)])
     return fig

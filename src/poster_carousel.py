@@ -14,6 +14,7 @@ import base64
 import html
 import json
 import os
+import ssl
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
@@ -23,7 +24,7 @@ import pandas as pd
 import streamlit.components.v1 as components
 
 
-# En yüksek puanlı ve popüler klasik filmler için doğrulanmış resmi TMDB afiş adresleri
+# En yüksek puanlı klasik filmler ve sık önerilen filmler için doğrulanmış resmi TMDB afiş adresleri
 KNOWN_MOVIE_POSTERS: Dict[int, str] = {
     278: "https://image.tmdb.org/t/p/w500/9cqNxx0GxF0bflZmeSMuL5tnGzr.jpg",     # The Shawshank Redemption
     238: "https://image.tmdb.org/t/p/w500/3bhkrj58Vtu7enYsRolD1fZdja1.jpg",     # The Godfather
@@ -82,7 +83,7 @@ def _get_cache_file_path() -> str:
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     data_dir = os.path.join(base_dir, "data")
     os.makedirs(data_dir, exist_ok=True)
-    return os.path.join(data_dir, "poster_cache.json")
+    return os.path.join(data_dir, "poster_cache_v3.json")
 
 
 def _load_poster_cache() -> Dict[str, str]:
@@ -134,28 +135,179 @@ def build_svg_fallback_poster(title: str, year: int, genres: str = "") -> str:
     return f"data:image/svg+xml;base64,{b64}"
 
 
+def _normalize_search_title(title: str) -> str:
+    """Özel karakterli film adlarını (Alien³ -> Alien 3 vb.) arama motorları için temizler."""
+    s = str(title or "").strip()
+    replacements = {
+        "³": " 3",
+        "²": " 2",
+        "¹": " 1",
+        "·": "-",
+        "–": "-",
+        "—": "-",
+    }
+    for k, v in replacements.items():
+        s = s.replace(k, v)
+    return " ".join(s.split())
+
+
+def _fetch_imdb_poster(title: str, year: Optional[int] = None) -> Optional[str]:
+    """
+    Ücretsiz ve API anahtarı gerektirmeyen resmi IMDb Suggestion CDN API üzerinden
+    filmin yüksek çözünürlüklü orijinal sinema afişini sorgular.
+    """
+    clean_title = _normalize_search_title(title)
+    if not clean_title:
+        return None
+    ctx = ssl._create_unverified_context()
+    try:
+        alnum_chars = [ch.lower() for ch in clean_title if ch.isalnum()]
+        first_char = alnum_chars[0] if alnum_chars else "x"
+        query_str = f"{clean_title} {year}" if year else clean_title
+        encoded = urllib.parse.quote(query_str.lower())
+        url = f"https://v3.sg.media-imdb.com/suggestion/{first_char}/{encoded}.json"
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
+        )
+        with urllib.request.urlopen(req, timeout=3.0, context=ctx) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+            items = payload.get("d", [])
+            if items:
+                best_img = ""
+                best_score = -999999
+                t_lower = clean_title.lower()
+                orig_lower = str(title or "").strip().lower()
+                for it in items:
+                    img_obj = it.get("i")
+                    if not isinstance(img_obj, dict):
+                        continue
+                    img_url = str(img_obj.get("imageUrl", ""))
+                    if not img_url:
+                        continue
+                    cand_title = str(it.get("l", "")).strip().lower()
+                    cand_norm = _normalize_search_title(cand_title).lower()
+                    cand_year = it.get("y")
+                    qid = str(it.get("qid", "")).lower()
+                    score = 0
+                    if qid in ("movie", "feature", "tvmovie"):
+                        score += 60
+                    elif qid in ("videogame", "tvseries", "tvminiseries"):
+                        score -= 50
+                    if cand_title in (t_lower, orig_lower) or cand_norm == t_lower:
+                        score += 110
+                    elif t_lower in cand_title or cand_title in t_lower:
+                        score += 45
+                    if year and isinstance(cand_year, int):
+                        diff = abs(int(year) - cand_year)
+                        if diff == 0:
+                            score += 150
+                        elif diff == 1:
+                            score += 95
+                        else:
+                            score -= diff * 10
+                    if score > best_score:
+                        best_score = score
+                        best_img = img_url
+                if best_img:
+                    return best_img
+    except Exception:
+        pass
+    return None
+
+
 def _fetch_itunes_poster(title: str, year: Optional[int] = None) -> Optional[str]:
     """
     Ücretsiz ve API anahtarı gerektirmeyen iTunes Search API üzerinden
     filmin yüksek çözünürlüklü afiş görselini sorgular.
     """
+    clean_title = _normalize_search_title(title)
+    if not clean_title:
+        return None
+    ctx = ssl._create_unverified_context()
     try:
-        query = f"{title} {year}" if year else title
-        encoded = urllib.parse.quote(query)
-        url = f"https://itunes.apple.com/search?term={encoded}&media=movie&entity=movie&limit=3"
+        encoded = urllib.parse.quote(clean_title)
+        url = f"https://itunes.apple.com/search?term={encoded}&media=movie&entity=movie&limit=10"
         req = urllib.request.Request(
             url,
             headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
         )
-        with urllib.request.urlopen(req, timeout=1.8) as resp:
+        with urllib.request.urlopen(req, timeout=3.0, context=ctx) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
             results = payload.get("results", [])
             if results:
-                art = results[0].get("artworkUrl100", "")
-                if art:
-                    return art.replace("100x100bb", "600x900bb")
+                best_art = ""
+                best_score = -999999
+                target_lower = clean_title.lower()
+                for r in results:
+                    art = str(r.get("artworkUrl100", ""))
+                    if not art:
+                        continue
+                    track_name = _normalize_search_title(str(r.get("trackName", ""))).lower()
+                    rel_date = str(r.get("releaseDate", ""))
+                    rel_year = int(rel_date[:4]) if len(rel_date) >= 4 and rel_date[:4].isdigit() else 0
+                    score = 0
+                    if track_name == target_lower:
+                        score += 100
+                    elif target_lower in track_name or track_name in target_lower:
+                        score += 40
+                    if year and rel_year:
+                        diff = abs(int(year) - rel_year)
+                        if diff == 0:
+                            score += 120
+                        elif diff == 1:
+                            score += 80
+                        else:
+                            score -= diff * 5
+                    if score > best_score:
+                        best_score = score
+                        best_art = art
+                if best_art:
+                    return best_art.replace("100x100bb", "600x900bb")
     except Exception:
+        pass
+    return None
+
+
+def _fetch_wikipedia_poster(title: str, year: Optional[int] = None) -> Optional[str]:
+    """
+    Wikipedia PageImages API (pilicense=any) üzerinden filmin resmi sinema afişini sorgular.
+    """
+    clean_title = _normalize_search_title(title)
+    if not clean_title:
         return None
+    ctx = ssl._create_unverified_context()
+    try:
+        q = f"{clean_title} {year} film" if year else f"{clean_title} film"
+        encoded_q = urllib.parse.quote(q)
+        url = (
+            "https://en.wikipedia.org/w/api.php?action=query&format=json"
+            f"&generator=search&gsrsearch={encoded_q}&gsrlimit=5"
+            "&prop=pageimages&pilicense=any&piprop=thumbnail|original&pithumbsize=500"
+        )
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "FilmAnalizPlatformu/1.0 (https://github.com/melikecaglar/film-veri-madenciligi)"},
+        )
+        with urllib.request.urlopen(req, timeout=3.0, context=ctx) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+            pages = payload.get("query", {}).get("pages", {})
+            if isinstance(pages, dict):
+                sorted_pages = sorted(pages.values(), key=lambda p: p.get("index", 999))
+                for p in sorted_pages:
+                    thumb = p.get("thumbnail", {}).get("source")
+                    orig = p.get("original", {}).get("source")
+                    candidate = str(thumb or orig or "")
+                    cand_low = candidate.lower()
+                    if (
+                        candidate
+                        and not cand_low.endswith(".svg")
+                        and not cand_low.endswith(".svg.png")
+                        and "logo" not in cand_low
+                    ):
+                        return candidate
+    except Exception:
+        pass
     return None
 
 
@@ -172,7 +324,7 @@ def resolve_posters_for_movies(movies: List[Dict[str, Any]]) -> List[Dict[str, A
         cache_key = str(mid) if mid else item.get("title", "")
         if mid in KNOWN_MOVIE_POSTERS:
             item["poster_url"] = KNOWN_MOVIE_POSTERS[mid]
-        elif cache_key in cache and cache[cache_key]:
+        elif cache_key in cache and cache[cache_key] and not str(cache[cache_key]).startswith("data:image/svg"):
             item["poster_url"] = cache[cache_key]
         else:
             to_fetch.append(idx)
@@ -180,9 +332,16 @@ def resolve_posters_for_movies(movies: List[Dict[str, Any]]) -> List[Dict[str, A
     if to_fetch:
         def _worker(i: int) -> Optional[str]:
             m = movies[i]
-            return _fetch_itunes_poster(str(m.get("title", "")), int(m.get("release_year", 0)))
+            t_str = str(m.get("title", ""))
+            y_int = int(m.get("release_year", 0))
+            url = _fetch_imdb_poster(t_str, y_int)
+            if not url:
+                url = _fetch_wikipedia_poster(t_str, y_int)
+            if not url:
+                url = _fetch_itunes_poster(t_str, y_int)
+            return url
 
-        with ThreadPoolExecutor(max_workers=5) as pool:
+        with ThreadPoolExecutor(max_workers=8) as pool:
             fetched_urls = list(pool.map(_worker, to_fetch))
 
         for i, url in zip(to_fetch, fetched_urls):
@@ -285,14 +444,17 @@ def generate_carousel_html(
 
     cards_html_parts: List[str] = []
     for item in doubled_items:
-        title_esc = html.escape(str(item.get("title", "")))
+        mid_val = int(item.get("id", 0))
+        title_raw = str(item.get("title", ""))
+        title_esc = html.escape(title_raw)
         year_val = int(item.get("release_year", 2000))
         vote_val = float(item.get("vote_average", 0.0))
         genres_raw = str(item.get("genres", ""))
         short_genres = html.escape(", ".join([g.strip() for g in genres_raw.split(",")[:2] if g.strip()]))
         director_esc = html.escape(str(item.get("director", "")))
         poster_url = str(item.get("poster_url", ""))
-        fallback_svg = build_svg_fallback_poster(str(item.get("title", "")), year_val, genres_raw)
+        fallback_svg = build_svg_fallback_poster(title_raw, year_val, genres_raw)
+        needs_fetch = "1" if (not poster_url or poster_url.startswith("data:image/svg")) else "0"
 
         sim_pct = item.get("similarity_pct")
         sim_badge_html = ""
@@ -304,8 +466,15 @@ def generate_carousel_html(
         card_html = f"""
         <div class="poster-card" title="{title_esc} ({year_val}) - ⭐ {vote_val:.1f}">
             <div class="poster-img-wrapper">
-                <img src="{poster_url}" alt="{title_esc}" loading="lazy"
-                     onerror="this.onerror=null;this.src='{fallback_svg}';" />
+                <img class="poster-img"
+                     src="{poster_url}"
+                     alt="{title_esc}"
+                     data-movie-id="{mid_val}"
+                     data-title="{title_esc}"
+                     data-year="{year_val}"
+                     data-needs-fetch="{needs_fetch}"
+                     data-fallback="{fallback_svg}"
+                     onerror="if(!this.dataset.triedBrowser){{this.dataset.triedBrowser='1';window.__resolvePoster && window.__resolvePoster(this);}}else{{this.onerror=null;this.src=this.dataset.fallback;}}" />
                 <div class="rating-badge">⭐ {vote_val:.1f}</div>
                 {sim_badge_html}
                 <div class="poster-overlay">
@@ -603,6 +772,170 @@ def generate_carousel_html(
                 btnNext.addEventListener('click', function(e) {{
                     e.stopPropagation();
                     manualTargetRemaining += stepPixels;
+                }});
+
+                // Tarayıcı içi canlı afiş çözümleyici (IMDb CDN + Wikipedia PageImages pilicense=any + iTunes API)
+                const pendingIds = new Set();
+
+                function normalizeTitle(t) {{
+                    return (t || '')
+                        .replace(/³/g, ' 3')
+                        .replace(/²/g, ' 2')
+                        .replace(/¹/g, ' 1')
+                        .replace(/·/g, '-')
+                        .replace(/\\s+/g, ' ')
+                        .trim();
+                }}
+
+                function applyPosterToCards(movieId, title, resolvedUrl) {{
+                    if (!resolvedUrl) return;
+                    try {{
+                        localStorage.setItem('fap_poster_v3_' + movieId, resolvedUrl);
+                    }} catch (e) {{}}
+                    const allImgs = document.querySelectorAll('img.poster-img');
+                    allImgs.forEach(function(el) {{
+                        if (el.dataset.movieId === String(movieId) || el.dataset.title === title) {{
+                            el.dataset.needsFetch = '0';
+                            el.src = resolvedUrl;
+                        }}
+                    }});
+                }}
+
+                async function fetchPosterFromImdb(title, year) {{
+                    try {{
+                        const clean = normalizeTitle(title);
+                        if (!clean) return null;
+                        const alnum = clean.toLowerCase().replace(/[^a-z0-9]/g, '');
+                        const firstChar = alnum ? alnum[0] : 'x';
+                        const q = year ? (clean + ' ' + year) : clean;
+                        const url = 'https://v3.sg.media-imdb.com/suggestion/' + firstChar + '/' + encodeURIComponent(q.toLowerCase()) + '.json';
+                        const resp = await fetch(url);
+                        if (!resp.ok) return null;
+                        const data = await resp.json();
+                        const list = data.d || [];
+                        let bestImg = '';
+                        let bestScore = -999999;
+                        const tLower = clean.toLowerCase();
+                        for (const it of list) {{
+                            if (!it.i || !it.i.imageUrl) continue;
+                            const cTitle = normalizeTitle(it.l || '').toLowerCase();
+                            const cYear = it.y || 0;
+                            const qid = (it.qid || '').toLowerCase();
+                            let score = 0;
+                            if (qid === 'movie' || qid === 'feature' || qid === 'tvmovie') score += 60;
+                            else if (qid === 'videogame' || qid === 'tvseries') score -= 50;
+                            if (cTitle === tLower) score += 110;
+                            else if (cTitle.includes(tLower) || tLower.includes(cTitle)) score += 45;
+                            if (year && cYear) {{
+                                const diff = Math.abs(year - cYear);
+                                if (diff === 0) score += 150;
+                                else if (diff === 1) score += 95;
+                                else score -= diff * 10;
+                            }}
+                            if (score > bestScore) {{
+                                bestScore = score;
+                                bestImg = it.i.imageUrl;
+                            }}
+                        }}
+                        return bestImg || null;
+                    }} catch (e) {{}}
+                    return null;
+                }}
+
+                async function fetchPosterFromWikipedia(title, year) {{
+                    try {{
+                        const clean = normalizeTitle(title);
+                        const q = year ? (clean + ' ' + year + ' film') : (clean + ' film');
+                        const url = 'https://en.wikipedia.org/w/api.php?action=query&origin=*&format=json&generator=search&gsrsearch='
+                                    + encodeURIComponent(q)
+                                    + '&gsrlimit=5&prop=pageimages&pilicense=any&piprop=thumbnail|original&pithumbsize=500';
+                        const resp = await fetch(url);
+                        if (!resp.ok) return null;
+                        const data = await resp.json();
+                        const pages = (data.query && data.query.pages) ? Object.values(data.query.pages) : [];
+                        pages.sort(function(a, b) {{ return (a.index || 999) - (b.index || 999); }});
+                        for (const p of pages) {{
+                            const cand = (p.thumbnail && p.thumbnail.source) || (p.original && p.original.source) || '';
+                            const cLow = cand.toLowerCase();
+                            if (cand && !cLow.endsWith('.svg') && !cLow.endsWith('.svg.png') && !cLow.includes('logo')) {{
+                                return cand;
+                            }}
+                        }}
+                    }} catch (e) {{}}
+                    return null;
+                }}
+
+                async function fetchPosterFromItunes(title, year) {{
+                    try {{
+                        const clean = normalizeTitle(title);
+                        const url = 'https://itunes.apple.com/search?term=' + encodeURIComponent(clean) + '&media=movie&entity=movie&limit=10';
+                        const resp = await fetch(url);
+                        if (!resp.ok) return null;
+                        const data = await resp.json();
+                        const results = data.results || [];
+                        if (!results.length) return null;
+                        let bestArt = '';
+                        let bestScore = -999999;
+                        const tLower = clean.toLowerCase();
+                        for (const r of results) {{
+                            const art = r.artworkUrl100 || '';
+                            if (!art) continue;
+                            const rName = normalizeTitle(r.trackName || '').toLowerCase();
+                            const rYear = r.releaseDate ? parseInt(r.releaseDate.slice(0, 4), 10) : 0;
+                            let score = 0;
+                            if (rName === tLower) score += 100;
+                            else if (rName.includes(tLower) || tLower.includes(rName)) score += 40;
+                            if (year && rYear) {{
+                                const diff = Math.abs(year - rYear);
+                                if (diff === 0) score += 120;
+                                else if (diff === 1) score += 80;
+                                else score -= diff * 5;
+                            }}
+                            if (score > bestScore) {{
+                                bestScore = score;
+                                bestArt = art;
+                            }}
+                        }}
+                        if (bestArt) {{
+                            return bestArt.replace('100x100bb', '600x900bb');
+                        }}
+                    }} catch (e) {{}}
+                    return null;
+                }}
+
+                window.__resolvePoster = async function(imgEl) {{
+                    const movieId = imgEl.dataset.movieId || '';
+                    const title = imgEl.dataset.title || '';
+                    const year = parseInt(imgEl.dataset.year || '0', 10);
+                    const key = movieId + '_' + title;
+                    if (pendingIds.has(key)) return;
+                    pendingIds.add(key);
+
+                    try {{
+                        const cached = localStorage.getItem('fap_poster_v3_' + movieId);
+                        if (cached && !cached.startsWith('data:image/svg')) {{
+                            applyPosterToCards(movieId, title, cached);
+                            return;
+                        }}
+                    }} catch (e) {{}}
+
+                    let found = await fetchPosterFromImdb(title, year);
+                    if (!found) {{
+                        found = await fetchPosterFromWikipedia(title, year);
+                    }}
+                    if (!found) {{
+                        found = await fetchPosterFromItunes(title, year);
+                    }}
+                    if (found) {{
+                        applyPosterToCards(movieId, title, found);
+                    }} else if (imgEl.dataset.fallback) {{
+                        imgEl.src = imgEl.dataset.fallback;
+                    }}
+                }};
+
+                // Sayfa yüklendiğinde afişi eksik olan tüm kartları otomatik tamamla
+                document.querySelectorAll('img.poster-img[data-needs-fetch="1"]').forEach(function(imgEl) {{
+                    window.__resolvePoster(imgEl);
                 }});
 
                 requestAnimationFrame(animateLoop);
