@@ -374,12 +374,16 @@ def get_top_rated_movies_with_posters(
     Veri setinden en az min_votes (varsayılan 1500) oy almış, vote_average değeri
     en yüksek ilk top_n filmi seçer ve afiş bilgilerini hazırlar.
     """
+    if df.empty:
+        return []
+
     filtered = df[df["vote_count"] >= min_votes].copy()
     if filtered.empty:
         filtered = df.copy()
 
     top_df = (
         filtered.sort_values(by=["vote_average", "vote_count"], ascending=[False, False])
+        .drop_duplicates(subset=["id"])
         .head(top_n)
         .reset_index(drop=True)
     )
@@ -435,15 +439,19 @@ def generate_carousel_html(
     Hem otomatik kayan, hem fareyle üzerine gelince duraklayan (pause on hover),
     hem de sağ ve sol (< ve >) ok butonlarıyla manuel kaydırılabilen,
     kart büyüme efektli (scale(1.09)) ve puan rozetli (⭐ 8.5) HTML/CSS/JS kodunu üretir.
+    Eğer 6'dan az film varsa (örneğin dar filtreleme sonucu tek bir film kaldıysa),
+    kartlar tekrarlanmaz, ortalanır ve statik vitrin olarak sergilenir.
     """
     if not items:
         return ""
 
-    # Sonsuz kesintisiz döngü için kart listesini 2 kez yan yana diziyoruz
-    doubled_items = items + items
+    # Yeterli sayıda film varsa (>= 6) kesintisiz sonsuz kayma için 2 kez yan yana diziyoruz.
+    # Az sayıda film varsa (1-5 adet) aynı filmin yan yana 2 kez çıkmaması için tekil bırakıyoruz.
+    should_loop = len(items) >= 6
+    render_items = (items + items) if should_loop else items
 
     cards_html_parts: List[str] = []
-    for item in doubled_items:
+    for item in render_items:
         mid_val = int(item.get("id", 0))
         title_raw = str(item.get("title", ""))
         title_esc = html.escape(title_raw)
@@ -490,6 +498,11 @@ def generate_carousel_html(
     all_cards_html = "\n".join(cards_html_parts)
     # Hız: speed_seconds küçükse daha hızlı, büyükse daha yavaş otomatik kayma
     px_per_frame = round(max(0.45, 34.0 / max(15, speed_seconds)), 2)
+    arrow_left_html = '<button class="nav-arrow left" id="btnPrev" aria-label="Sola Kaydır" title="Sola Kaydır">&lt;</button>' if should_loop else ""
+    arrow_right_html = '<button class="nav-arrow right" id="btnNext" aria-label="Sağa Kaydır" title="Sağa Kaydır">&gt;</button>' if should_loop else ""
+    fade_display = "block" if should_loop else "none"
+    track_justify = "flex-start" if should_loop else "center"
+    should_loop_js = "true" if should_loop else "false"
 
     full_html = f"""
     <!DOCTYPE html>
@@ -528,6 +541,7 @@ def generate_carousel_html(
             height: 100%;
             z-index: 15;
             pointer-events: none;
+            display: {fade_display};
         }}
         .carousel-viewport::before {{
             left: 0;
@@ -546,7 +560,9 @@ def generate_carousel_html(
             display: flex;
             gap: 20px;
             width: max-content;
+            min-width: 100%;
             padding: 0 20px;
+            justify-content: {track_justify};
         }}
         /* Uyumluluk için hover duraklama kuralı */
         .carousel-viewport:hover .carousel-track {{
@@ -701,13 +717,13 @@ def generate_carousel_html(
     </head>
     <body>
         <div class="carousel-viewport" id="viewport">
-            <button class="nav-arrow left" id="btnPrev" aria-label="Sola Kaydır" title="Sola Kaydır">&lt;</button>
+            {arrow_left_html}
             <div class="carousel-scroller" id="scroller">
                 <div class="carousel-track" id="track">
                     {all_cards_html}
                 </div>
             </div>
-            <button class="nav-arrow right" id="btnNext" aria-label="Sağa Kaydır" title="Sağa Kaydır">&gt;</button>
+            {arrow_right_html}
         </div>
 
         <script>
@@ -717,6 +733,7 @@ def generate_carousel_html(
                 const track = document.getElementById('track');
                 const btnPrev = document.getElementById('btnPrev');
                 const btnNext = document.getElementById('btnNext');
+                const shouldLoop = {should_loop_js};
 
                 let isHovered = false;
                 let manualTargetRemaining = 0;
@@ -729,6 +746,7 @@ def generate_carousel_html(
                 }}
 
                 function normalizePosition() {{
+                    if (!shouldLoop) return;
                     const half = getHalfWidth();
                     if (half <= 0) return;
                     if (currentPos >= half) {{
@@ -739,6 +757,7 @@ def generate_carousel_html(
                 }}
 
                 function animateLoop() {{
+                    if (!shouldLoop) return;
                     if (Math.abs(manualTargetRemaining) > 0.5) {{
                         // Ok butonuna tıklandığında yumuşak geçişli manuel kaydırma
                         const delta = manualTargetRemaining * 0.16;
@@ -757,22 +776,30 @@ def generate_carousel_html(
                     requestAnimationFrame(animateLoop);
                 }}
 
-                viewport.addEventListener('mouseenter', function() {{
-                    isHovered = true;
-                }});
-                viewport.addEventListener('mouseleave', function() {{
-                    isHovered = false;
-                }});
+                if (shouldLoop) {{
+                    viewport.addEventListener('mouseenter', function() {{
+                        isHovered = true;
+                    }});
+                    viewport.addEventListener('mouseleave', function() {{
+                        isHovered = false;
+                    }});
 
-                btnPrev.addEventListener('click', function(e) {{
-                    e.stopPropagation();
-                    manualTargetRemaining -= stepPixels;
-                }});
+                    if (btnPrev) {{
+                        btnPrev.addEventListener('click', function(e) {{
+                            e.stopPropagation();
+                            manualTargetRemaining -= stepPixels;
+                        }});
+                    }}
 
-                btnNext.addEventListener('click', function(e) {{
-                    e.stopPropagation();
-                    manualTargetRemaining += stepPixels;
-                }});
+                    if (btnNext) {{
+                        btnNext.addEventListener('click', function(e) {{
+                            e.stopPropagation();
+                            manualTargetRemaining += stepPixels;
+                        }});
+                    }}
+
+                    requestAnimationFrame(animateLoop);
+                }}
 
                 // Tarayıcı içi canlı afiş çözümleyici (IMDb CDN + Wikipedia PageImages pilicense=any + iTunes API)
                 const pendingIds = new Set();

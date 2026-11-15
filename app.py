@@ -136,7 +136,7 @@ def inject_custom_styles() -> None:
         .page-header-box {
             border-bottom: 1px solid #E2E8F0;
             padding-bottom: 0.9rem;
-            margin-bottom: 1.25rem;
+            margin-bottom: 1.2rem;
         }
         .page-badge {
             display: inline-block;
@@ -162,6 +162,56 @@ def inject_custom_styles() -> None:
             color: #475569;
             margin: 0;
             line-height: 1.5;
+        }
+
+        /* Teknik başlık altı açıklama kutusu (Nedir & Neyi Etkiler) */
+        .section-heading-wrap {
+            margin-top: 1.1rem;
+            margin-bottom: 0.7rem;
+        }
+        .section-heading-title {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #0F172A;
+            margin: 0 0 0.4rem 0;
+            line-height: 1.35;
+        }
+        .section-heading-title-sm {
+            font-size: 0.98rem;
+            font-weight: 700;
+            color: #0F172A;
+            margin: 0 0 0.35rem 0;
+            line-height: 1.35;
+        }
+        .header-info-box {
+            background-color: #F8FAFC;
+            border: 1px solid #E2E8F0;
+            border-left: 3.5px solid #2563EB;
+            border-radius: 6px;
+            padding: 0.6rem 0.9rem;
+            margin-bottom: 0.75rem;
+            font-size: 0.855rem;
+            color: #334155;
+            line-height: 1.48;
+        }
+        .header-info-row {
+            margin: 0.15rem 0;
+        }
+        .header-info-tag {
+            display: inline-block;
+            font-size: 0.74rem;
+            font-weight: 700;
+            color: #1E40AF;
+            background-color: #DBEAFE;
+            border-radius: 4px;
+            padding: 0.05rem 0.42rem;
+            margin-right: 0.4rem;
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+        }
+        .header-info-tag-impact {
+            color: #0F766E;
+            background-color: #CCFBF1;
         }
 
         /* Bilgi ve bulgu kutusu */
@@ -206,6 +256,56 @@ def inject_custom_styles() -> None:
             border-color: #BBF7D0;
         }
         </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_info_explainer(what_it_is: str, what_it_affects: str) -> None:
+    """
+    Yalnızca teknik/algoritmik bölümlerin altında 'Nedir?' ve 'Neyi Etkiler?'
+    sorularını yanıtlayan bilgi kutusu bileşenini oluşturur.
+    """
+    st.markdown(
+        f"""
+        <div class="header-info-box">
+            <div class="header-info-row">
+                <span class="header-info-tag">📌 Nedir?</span>
+                <span>{html.escape(what_it_is)}</span>
+            </div>
+            <div class="header-info-row">
+                <span class="header-info-tag header-info-tag-impact">⚡ Neyi Etkiler?</span>
+                <span>{html.escape(what_it_affects)}</span>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_section_header(
+    title: str,
+    what_it_is: str,
+    what_it_affects: str,
+    small: bool = False,
+) -> None:
+    """Teknik bölüm alt başlığını ve hemen altındaki 'Nedir / Neyi Etkiler' bilgi kutusunu birlikte çizer."""
+    cls = "section-heading-title-sm" if small else "section-heading-title"
+    st.markdown(
+        f"""
+        <div class="section-heading-wrap">
+            <div class="{cls}">{html.escape(title)}</div>
+            <div class="header-info-box">
+                <div class="header-info-row">
+                    <span class="header-info-tag">📌 Nedir?</span>
+                    <span>{html.escape(what_it_is)}</span>
+                </div>
+                <div class="header-info-row">
+                    <span class="header-info-tag header-info-tag-impact">⚡ Neyi Etkiler?</span>
+                    <span>{html.escape(what_it_affects)}</span>
+                </div>
+            </div>
+        </div>
         """,
         unsafe_allow_html=True,
     )
@@ -487,12 +587,30 @@ def render_home_page(df: pd.DataFrame, report: Dict[str, Any]) -> None:
         delta_color="off",
     )
 
-    st.markdown("#### 🏆 En Yüksek Puanlı Klasik Filmler Vitrini (IMDb / TMDB Top 15)")
-    st.caption(
-        "En az 1.500 oy almış en yüksek puanlı 15 film — Fareyle afişlerin üzerine gelerek kaymayı durdurabilir, büyütebilir veya `<` `>` oklarıyla manuel kaydırabilirsiniz."
-    )
     top_poster_items = get_top_rated_movies_with_posters(filtered_df, top_n=15, min_votes=1500)
-    render_poster_carousel(top_poster_items, height=335, speed_seconds=40)
+    if top_poster_items:
+        vitrin_count = len(top_poster_items)
+        if vitrin_count >= 15:
+            header_suffix = "Top 15"
+        elif vitrin_count > 1:
+            header_suffix = f"Top {vitrin_count}"
+        else:
+            header_suffix = "Öne Çıkan Film"
+
+        st.markdown(f"#### 🏆 En Yüksek Puanlı Klasik Filmler Vitrini (IMDb / TMDB {header_suffix})")
+        if vitrin_count >= 6:
+            st.caption(
+                f"Filtrelenen yapımlar arasından en yüksek puanlı {vitrin_count} film — Fareyle afişlerin üzerine gelerek kaymayı durdurabilir, büyütebilir veya `<` `>` oklarıyla manuel kaydırabilirsiniz."
+            )
+        elif vitrin_count > 1:
+            st.caption(
+                f"Filtrelenen yapımlar arasından en yüksek puanlı {vitrin_count} film — Fareyle afişlerin üzerine gelerek detayları inceleyebilirsiniz."
+            )
+        else:
+            st.caption(
+                "Filtrelenen aralıktaki yapım — Fareyle afişin üzerine gelerek detayları inceleyebilirsiniz."
+            )
+        render_poster_carousel(top_poster_items, height=335, speed_seconds=70)
 
     st.markdown("#### 📊 Keşifsel Veri Analizi ve İnteraktif Grafikler")
     st.caption(
@@ -550,6 +668,10 @@ def render_home_page(df: pd.DataFrame, report: Dict[str, Any]) -> None:
         )
 
     with tab4:
+        render_info_explainer(
+            what_it_is="Yapım bütçesi ile gişe geliri arasındaki Pearson korelasyonunu (r) ve popülerlik-puan ilişkisini logaritmik ölçekte (log-scale) inceleyen saçılım analizidir.",
+            what_it_affects="Doğrusal korelasyonun gücünü (r ≈ 0.71) ve sağa çarpık dağılımı göstererek K-Means ile Random Forest modellerinde neden np.log1p dönüşümü ve ölçeklendirme kullanıldığını belirler.",
+        )
         c1, c2 = st.columns(2)
         with c1:
             render_chart(plot_budget_vs_revenue(filtered_df), key="home_b_vs_r")
@@ -735,7 +857,12 @@ def render_dataset_page(df: pd.DataFrame, report: Dict[str, Any]) -> None:
         )
         c1, c2 = st.columns([1.25, 1.0])
         with c1:
-            st.markdown("##### 🛠️ Eksik ve Hatalı Verilerin Temizlenmesi")
+            render_section_header(
+                title="🛠️ Eksik Veri İmputasyonu ve Sıfır ($0) Değer Yönetimi",
+                what_it_is="Ham verideki eksik (NaN) değerlerin medyan ile doldurulması (imputation) ve $0 olarak girilmiş finansal kayıtların ayrıştırılması sürecidir.",
+                what_it_affects="Aykırı değerlere duyarsız olan medyan atamasıyla kayıt kaybını önler; $0 bütçe/gelir kayıtlarını filtreleyerek K-Means ve Random Forest modellerinde sıfıra bölme hatasını ve yanlılığı (bias) engeller.",
+                small=True,
+            )
             cleaning_summary = pd.DataFrame(
                 [
                     {
@@ -778,7 +905,12 @@ def render_dataset_page(df: pd.DataFrame, report: Dict[str, Any]) -> None:
             st.dataframe(cleaning_summary, width="stretch", hide_index=True)
 
         with c2:
-            st.markdown("##### 🧬 Türetilen Yeni Özellikler (Feature Engineering)")
+            render_section_header(
+                title="🧬 Özellik Mühendisliği (Feature Engineering) ve Log1p Dönüşümü",
+                what_it_is="Ham JSON metinlerinden yapısal listelerin çıkarılması ve sağa çarpık (right-skewed) finansal değişkenlere np.log1p(x) = ln(1+x) dönüşümü uygulanmasıdır.",
+                what_it_affects="Aşırı yüksek bütçe/gelir uç değerlerinin Öklid uzaklığını (K-Means) domine etmesini önler; Apriori ve TF-IDF modelleri için temiz girdi vektörleri üretir.",
+                small=True,
+            )
             new_cols_df = pd.DataFrame(
                 [
                     {"Yeni Sütun": "release_year", "Açıklama": "Yayın tarihinden çıkarılan tam yıl bilgisi"},
@@ -842,22 +974,28 @@ def render_apriori_page(df: pd.DataFrame) -> None:
         icon_svg=APRIORI_SVG,
     )
 
-    # Metrik Rehberi (Kullanıcının metrikleri kolay anlaması için)
+    # Metrik Rehberi
     g_col1, g_col2, g_col3 = st.columns(3)
     with g_col1:
         with st.container(border=True):
             st.markdown("**📌 Support (Destek Oranı)**")
-            st.caption("İlgili tür veya anahtar kelime grubunun tüm filmler içinde birlikte görülme yüzdesidir.")
+            st.caption("İlgili tür veya anahtar kelime grubunun tüm filmler içinde birlikte görülme yüzdesidir: $P(X \\cap Y)$.")
     with g_col2:
         with st.container(border=True):
             st.markdown("**🎯 Confidence (Güven Olasılığı)**")
-            st.caption("Öncül tür (Eğer X) bir filmde varsa, ardıl türün (İse Y) aynı filmde bulunma olasılığıdır.")
+            st.caption("Öncül tür (Eğer X) bir filmde varsa, ardıl türün (İse Y) aynı filmde bulunma koşullu olasılığıdır: $P(Y|X)$.")
     with g_col3:
         with st.container(border=True):
             st.markdown("**🚀 Lift (Kaldıraç Katsayısı)**")
-            st.caption("İki öğenin tesadüfen yan yana gelmesine kıyasla kaç kat daha güçlü birliktelik gösterdiğidir (>1 pozitif).")
+            st.caption("İki öğenin bağımsız/tesadüfi yan yana gelmesine kıyasla kaç kat daha güçlü birliktelik gösterdiğidir: $P(Y|X) / P(Y)$.")
 
-    # Parametre Çubuğu
+    # Teknik Açıklama 1: Apriori Hiperparametreleri ve Budama (Pruning)
+    render_section_header(
+        title="⚙️ Apriori Algoritma Hiperparametreleri ve Eşik Budaması (Pruning)",
+        what_it_is="TransactionEncoder ile One-Hot ikili matrise çevrilen film sepetlerinde sık öğe kümelerini (frequent itemsets) ve kuralları süzen eşik değerleridir.",
+        what_it_affects="Apriori'nin anti-monotonluk ilkesine göre Minimum Support düşürüldükçe aday öğe uzayı genişler ve nadir kurallar yakalanır; Confidence ve Lift artırıldıkça zayıf/tesadüfi kurallar elenir.",
+    )
+
     with st.container(border=True):
         p1, p2, p3, p4 = st.columns([1.2, 1.2, 1.2, 1.0])
         min_support = p1.slider(
@@ -957,6 +1095,10 @@ def render_apriori_page(df: pd.DataFrame) -> None:
     )
 
     with tab_rules:
+        render_info_explainer(
+            what_it_is="Üretilen kuralların 3 boyutlu metrik uzaydaki (X: Support, Y: Confidence, Renk/Boyut: Lift) dağılım haritası ve en yüksek Lift sıralamasıdır.",
+            what_it_affects="Yüksek Support'lu genel kurallar (Drama/Comedy) ile düşük Support ama çok yüksek Lift ve Confidence üreten spesifik alt-tür kurallarını (Animation <-> Family) ayrıştırmanızı sağlar.",
+        )
         v1, v2 = st.columns(2)
         with v1:
             render_chart(plot_top_rules_bar(res["top_10_rules"]), key="ap_top_bar")
@@ -1059,6 +1201,13 @@ def render_kmeans_page(df: pd.DataFrame) -> None:
         icon_svg=KMEANS_SVG,
     )
 
+    # Teknik Açıklama 1: K-Means Hiperparametreleri ve Özellik Ölçeklendirme
+    render_section_header(
+        title="⚙️ K-Means Hiperparametreleri, StandardScaler ve MultiLabelBinarizer",
+        what_it_is="Sayısal özelliklerin log1p + StandardScaler (ortalama=0, std=1) ile normalize edildiği ve türlerin MultiLabelBinarizer ile ikili vektöre çevrildiği kümeleme yapılandırmasıdır.",
+        what_it_affects="Küme sayısı (k) segment granülaritesini değiştirir; sıfır bütçe/gelir filtresi merkezlerin (centroid) gerçek finansal verilerle hesaplanmasını sağlar; tür ağırlığı ise tematik ayrışmayı kontrol eder.",
+    )
+
     with st.container(border=True):
         c1, c2, c3 = st.columns([1.2, 1.4, 1.4])
         n_clusters = c1.slider(
@@ -1122,7 +1271,7 @@ def render_kmeans_page(df: pd.DataFrame) -> None:
         delta_color="off",
     )
 
-    # Küme Profil Kartları (Kullanıcının kümeleri tek bakışta anlaması için)
+    # Küme Profil Kartları
     st.markdown("#### 🏷️ Oluşturulan Küme Profilleri (Segment Özeti)")
     summary_df = res["summary_df"]
     cols_per_row = min(len(summary_df), 4)
@@ -1177,15 +1326,17 @@ def render_kmeans_page(df: pd.DataFrame) -> None:
         )
 
     with tab_pca:
-        render_chart(plot_kmeans_clusters_pca(res["clustered_df"]), key="km_pca")
-        render_insight_box(
-            "PCA Haritası Nasıl Okunur?",
-            "Yüksek boyutlu özellik uzayı Temel Bileşenler Analizi (PCA) ile 2 boyuta indirgenmiştir. "
-            "Yatay eksen (PCA 1) ağırlıklı olarak <b>finansal büyüklük ve popülerliği</b>, dikey eksen (PCA 2) ise "
-            "<b>film puanı, süre ve tür farklılıklarını</b> temsil eder. Noktaların üzerine gelerek hangi filmin hangi kümede yer aldığını görebilirsiniz.",
+        render_info_explainer(
+            what_it_is="Yüksek boyutlu özellik matrisinin (bütçe, gelir, popülerlik, puan, süre ve 20 tür) Temel Bileşenler Analizi (PCA) ile en yüksek varyanslı 2 dik bileşene (PCA 1 ve PCA 2) izdüşümüdür.",
+            what_it_affects="Çok boyutlu küme merkezlerinin 2B düzlemde ne kadar ayrıştığını görselleştirir; PCA 1 ekseni finansal ölçek ve popülerliği, PCA 2 ekseni ise izleyici puanı ve tür ayrımını temsil eder.",
         )
+        render_chart(plot_kmeans_clusters_pca(res["clustered_df"]), key="km_pca")
 
     with tab_eval:
+        render_info_explainer(
+            what_it_is="k = 2..8 aralığında hesaplanan Küme İçi Hata Kareler Toplamı (WCSS / Inertia - Dirsek Yöntemi) ve küme ayrışma katsayısı olan Silhouette Skoru (-1 ile +1 arası) analizidir.",
+            what_it_affects="Inertia'nın düşüş hızının yavaşladığı kırılma noktasını (dirsek) ve kümeler arası ayrışmanın küme içi yoğunluğa oranını ölçerek optimal küme sayısı (k) seçimini doğrular.",
+        )
         render_chart(
             plot_elbow_and_silhouette(res["evaluation_df"], res["selected_k"]),
             key="km_elbow",
@@ -1275,6 +1426,13 @@ def render_random_forest_page(df: pd.DataFrame) -> None:
         icon_svg=RF_SVG,
     )
 
+    # Teknik Açıklama 1: Random Forest Hiperparametreleri ve Veri Sızıntısı Önleme
+    render_section_header(
+        title="⚙️ Random Forest Hiperparametreleri (Bagging, Max Depth ve Stratified Split)",
+        what_it_is="Çoklu karar ağaçlarının Bootstrap örneklemesiyle eğitildiği (Bagging) ve hedef sınıf oranlarının korunarak (stratify=y) eğitim/test ayrımının yapıldığı model yapılandırmasıdır.",
+        what_it_affects="Ağaç sayısı (n_estimators) tahmin varyansını düşürür; maksimum derinlik (max_depth) aşırı öğrenmeyi (overfitting) sınırlar; StandardScaler yalnızca eğitim verisinde fit edilerek veri sızıntısını (data leakage) önler.",
+    )
+
     with st.container(border=True):
         p1, p2, p3 = st.columns(3)
         n_estimators = p1.slider(
@@ -1362,6 +1520,10 @@ def render_random_forest_page(df: pd.DataFrame) -> None:
     )
 
     with tab_eval:
+        render_info_explainer(
+            what_it_is="Karar ağacı düğümlerinde Gini safsızlığını (impurity) en çok düşüren özelliklerin ağırlık sıralaması (Feature Importance) ve test seti Karmaşıklık Matrisidir (TN, FP, FN, TP).",
+            what_it_affects="Gişe gelir sınıfını tahmin ederken hangi değişkenin (Oy Sayısı, Popülerlik, Bütçe vb.) karar mekanizmasını ne oranda domine ettiğini ve hata türlerini (Yanlış Pozitif / Yanlış Negatif) gösterir.",
+        )
         c1, c2 = st.columns([1.3, 1.0])
         with c1:
             render_chart(
@@ -1583,6 +1745,13 @@ def render_recommendation_page(df: pd.DataFrame) -> None:
 
     engine = cached_recommendation_engine(df)
 
+    # Teknik Açıklama: TF-IDF Vektör Uzayı ve Kosinüs Benzerliği
+    render_section_header(
+        title="🔤 TF-IDF Vektörleştirme (1-2 N-Gram) ve Kosinüs Benzerliği (Cosine Similarity)",
+        what_it_is="Filmlerin özet, tür, anahtar kelime, oyuncu ve yönetmen metinlerini terim sıklığı-ters doküman sıklığı (TF-IDF) ile 15.000 boyutlu vektörlere dönüştürüp aralarındaki açının kosinüsünü hesaplayan NLP modelidir.",
+        what_it_affects="Sık geçen sıradan kelimelerin ağırlığını düşürüp ayırt edici tematik kelimeleri, yönetmeni ve oyuncu kadrosunu öne çıkararak seçilen filme içerikçe en yakın yapımları sıralar.",
+    )
+
     # Arama ve Seçim Kutusu
     with st.container(border=True):
         c_search, c_select, c_count = st.columns([1.2, 1.6, 0.8])
@@ -1665,7 +1834,7 @@ def render_recommendation_page(df: pd.DataFrame) -> None:
         "Önerilen filmlerin afişleri (Sağ üstte IMDb/TMDB puan rozeti, sol üstte benzerlik yüzdesi rozeti yer alır; fareyle üzerine gelince duraklar veya `<` `>` oklarıyla kaydırılabilir)."
     )
     rec_poster_items = get_recommended_movies_with_posters(rec_df)
-    render_poster_carousel(rec_poster_items, height=335, speed_seconds=32)
+    render_poster_carousel(rec_poster_items, height=335, speed_seconds=80)
 
     # En Güçlü İlk 3 Öneri Kartı
     st.markdown(f"#### ✨ '{sel_movie['title']}' İçin En Güçlü İlk 3 Öneri")
